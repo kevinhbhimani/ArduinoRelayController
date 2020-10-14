@@ -7,10 +7,10 @@ const int SensorPin = A0;
 
 const int HeaterPin = 9;
 
-const double Kp = 9.0;
-const double Ki = 0.1;
-const double Kd = 1.0;
-const double SetPoint = 0.3; // should be about 8 psi
+const double Kp = 17.0;
+const double Ki = 122.4;
+const double Kd = 7.65;
+const double SetPoint = 0.25; // should be about 8 psi
 
 double pressure;
 double power = 0.0;
@@ -21,11 +21,13 @@ PID HTRPID(&pressure, &power, SetPoint, Kp, Ki, Kd);
 
 void setup()
 {
-  analogReference(INTERNAL); // use the 1.1 V internal reference
+  analogReference(DEFAULT); // use the 5 V reference
   HTRPID.sampleTime = HTRCycleTime;
   pinMode(HeaterPin, OUTPUT);
   Serial.begin(9600);
   HTRPID.inAuto = true;
+  pinMode(5, OUTPUT);//for LED
+  pinMode(6, OUTPUT);//for LED
 }
 
 void parseSerial()
@@ -39,6 +41,7 @@ void parseSerial()
       HTRPID.Kp = val;
       Serial.print("Set Kp to ");
       Serial.println(val);
+      //set iterm function
     break;
     case 'i' : // set Ki
       val = Serial.parseFloat();
@@ -68,13 +71,39 @@ void parseSerial()
       Serial.print("Set output to ");
       Serial.println(val);
     break;
+    case 't' : // set iTerm
+      val = Serial.parseFloat();
+      HTRPID.iTerm = val;
+      Serial.print("Set iTerm to ");
+      Serial.println(val);
+    break;
     
+    case '?' : // display settings
+    Serial.print("Output is ");
+    Serial.println(power);
+    Serial.print("Setpoint is ");
+    Serial.println(HTRPID.setPoint);
+    Serial.print("Kp is ");
+    Serial.println(HTRPID.Kp);
+    Serial.print("Ki is ");
+    Serial.println(HTRPID.Ki);
+    Serial.print("Kd is ");
+    Serial.println(HTRPID.Kd);
+    Serial.print("Automatic control is ");
+    Serial.println(HTRPID.inAuto);
+    Serial.print("PID pTerm is ");
+    Serial.println(HTRPID.pTerm);
+    Serial.print("PID iTerm is ");
+    Serial.println(HTRPID.iTerm);
+    Serial.print("PID dTerm is ");
+    Serial.println(HTRPID.dTerm);
   }
   
 }
 
 void loop()
 {
+  digitalWrite(5, HIGH);//Turns on the Green LED 
   parseSerial();
   // read current pressure
   pressure = float(analogRead(SensorPin)) / 1024.0;
@@ -96,6 +125,8 @@ void loop()
       }
       heaterOn = true;
       digitalWrite(HeaterPin, HIGH);
+      digitalWrite(6, HIGH); //turn on the red LED  
+
     }
     else
     {
@@ -107,6 +138,7 @@ void loop()
       }
       heaterOn = false;
       digitalWrite(HeaterPin, LOW);
+      digitalWrite(6, LOW); //Turns off the Red LED
     }
     windowStopTime += HTRPID.lastTime; // The heater pulse uses the same timing variable as the PID calculation to ensure synchronization.
   }
@@ -124,6 +156,8 @@ void loop()
       }
       heaterOn = false;
       digitalWrite(HeaterPin, LOW);
+      digitalWrite(6, LOW); //turn off the Red LED  
+      digitalWrite(5, HIGH); //turn on the Red LED  
     }
   }
 }

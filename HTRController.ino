@@ -7,17 +7,19 @@ const int SensorPin = A0;
 
 const int HeaterPin = 9;
 
-const double Kp = 17.0;
-const double Ki = 1.0;
-const double Kd = 1.0;
+const double Kp = 0.1;
+const double Ki = 0.01;
+const double Kd = 0.01;
 const double SetPoint = 8.0; // should be about 8 psi
 
 // strings take up memory, so those that occur in multiple places should refer to a global string
-const char PressureMessage[] PROGMEM = "Measured pressure is "; 
-const char MilliSecondsMessage[] PROGMEM = " ms.";
+const char PressureMessage[] PROGMEM = {"Measured pressure is "}; 
+const char MilliSecondsMessage[] PROGMEM = {" ms."};
 
 const double PowerPeriodInMs = 60.0/1000.0; // 60 Hz in USA 
 
+double slopeADCtoPSIG = 0.0366569;
+double offsetADCtoPSIG = -3.75;
 double pressure;
 double power = 0.0;
 bool heaterOn = false;
@@ -38,6 +40,10 @@ void SaveToEEPROM( int addrEEPROM = 0 )
   addrEEPROM+=sizeof(double);
   EEPROM.put(addrEEPROM,HTRPID.outMax);
   addrEEPROM+=sizeof(double);
+  EEPROM.put(addrEEPROM,slopeADCtoPSIG);
+  addrEEPROM+=sizeof(double);
+  EEPROM.put(addrEEPROM,offsetADCtoPSIG);
+  addrEEPROM+=sizeof(double);
   EEPROM.put(addrEEPROM,HTRPID.sampleTime);
   addrEEPROM+=sizeof(long);
   EEPROM.put(addrEEPROM,loopDelay);
@@ -54,6 +60,10 @@ void LoadFromEEPROM( int addrEEPROM = 0 )
   EEPROM.get(addrEEPROM,HTRPID.setPoint);
   addrEEPROM+=sizeof(double);
   EEPROM.get(addrEEPROM,HTRPID.outMax);
+  addrEEPROM+=sizeof(double);
+  EEPROM.get(addrEEPROM,slopeADCtoPSIG);
+  addrEEPROM+=sizeof(double);
+  EEPROM.get(addrEEPROM,offsetADCtoPSIG);
   addrEEPROM+=sizeof(double);
   EEPROM.get(addrEEPROM,HTRPID.sampleTime);
   addrEEPROM+=sizeof(long);
@@ -145,6 +155,18 @@ void parseSerial()
       Serial.print(F("Set maximum output to "));
       Serial.println(fVal);
     break;    
+    case 'g' : // set slopeADCtoPSIG for sensor calibration
+      fVal = Serial.parseFloat();
+      slopeADCtoPSIG = fVal;
+      Serial.print(F("Set slope of ADC to pressure(psig) conversion to "));
+      Serial.println(fVal);
+    break;    
+    case 'z' : // set offsetADCtoPSIG for sensor calibration
+      fVal = Serial.parseFloat();
+      offsetADCtoPSIG = fVal;
+      Serial.print(F("Set offset of ADC to pressure(psig) converstion to "));
+      Serial.println(fVal);
+    break;    
     case 'v' : // save settings
       Serial.println(F("Saving settings to EEPROM."));
       SaveToEEPROM();
@@ -161,7 +183,9 @@ void parseSerial()
     Serial.println(F("t # - set iTerm of PID controller"));
     Serial.println(F("w # - set heater cycle time in milliseconds"));
     Serial.println(F("m # - set maximum output power (fraction of time for heater to be on, so limited to 1)"));
-    Serial.println(F("v - save settings to EEPROM, will always be in auto after a reset"));
+    Serial.println(F("g # - set ADC to pressure slope"));
+    Serial.println(F("z # - set ADC to pressure zero offset"));
+    Serial.println(F("v - save settings to EEPROM, will always be in auto after a reset"));    
     Serial.print(F("Output is "));
     Serial.println(power);
     Serial.print(F("Setpoint is "));
@@ -173,6 +197,10 @@ void parseSerial()
     Serial.println(HTRPID.Ki);
     Serial.print(F("Kd is "));
     Serial.println(HTRPID.Kd);
+    Serial.print(F("ADC to pressure conversion equation is ADC * "));
+    Serial.print(slopeADCtoPSIG);
+    Serial.print(F(" + "));
+    Serial.println(offsetADCtoPSIG);
     Serial.print(F("Automatic control is "));
     Serial.println(HTRPID.inAuto);
     Serial.print(F("PID pTerm is "));
@@ -197,7 +225,7 @@ void loop()
   digitalWrite(5, HIGH);//Turns on the Green LED 
   parseSerial();
   // read current pressure
-  pressure = (float(analogRead(SensorPin)) / 204.6 - 0.5) * 7.5; // 10 bit ADC with 5V full scale, 0.5 V is 0 psig, 4.5 V is 30 psig
+  pressure = float(analogRead(SensorPin)) * slopeADCtoPSIG + offsetADCtoPSIG; // 10 bit ADC with 5V full scale, 0.5 V is 0 psig, 4.5 V is 30 psig
   // compute the PID setting with measured pressure
   // Heater power is controller with pulse width modulation. 
   if (HTRPID.Compute()) // If the PID recalculated heater power, this is also the start of the heater power window

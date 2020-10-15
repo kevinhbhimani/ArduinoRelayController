@@ -15,6 +15,7 @@ const double SetPoint = 8.0; // should be about 8 psi
 // strings take up memory, so those that occur in multiple places should refer to a global string
 const char PressureMessage[] PROGMEM = {"Measured pressure is "}; 
 const char MilliSecondsMessage[] PROGMEM = {" ms."};
+const char PSIGMessage[] PROGMEM = {" psig."};
 
 const double PowerPeriodInMs = 60.0/1000.0; // 60 Hz in USA 
 
@@ -38,6 +39,8 @@ void SaveToEEPROM( int addrEEPROM = 0 )
   addrEEPROM+=sizeof(double);
   EEPROM.put(addrEEPROM,HTRPID.setPoint);
   addrEEPROM+=sizeof(double);
+  EEPROM.put(addrEEPROM,HTRPID.outMin);
+  addrEEPROM+=sizeof(double);
   EEPROM.put(addrEEPROM,HTRPID.outMax);
   addrEEPROM+=sizeof(double);
   EEPROM.put(addrEEPROM,slopeADCtoPSIG);
@@ -58,6 +61,8 @@ void LoadFromEEPROM( int addrEEPROM = 0 )
   EEPROM.get(addrEEPROM,HTRPID.Kd);
   addrEEPROM+=sizeof(double);
   EEPROM.get(addrEEPROM,HTRPID.setPoint);
+  addrEEPROM+=sizeof(double);
+  EEPROM.get(addrEEPROM,HTRPID.outMin);
   addrEEPROM+=sizeof(double);
   EEPROM.get(addrEEPROM,HTRPID.outMax);
   addrEEPROM+=sizeof(double);
@@ -142,7 +147,7 @@ void parseSerial()
       Serial.print(iVal);
       Serial.println(MilliSecondsMessage);
     break;
-    case '*' : // set cycle time
+    case '*' : // set loop delay
       iVal = Serial.parseInt();
       loopDelay = iVal;
       Serial.print(F("Set loop delay time to "));
@@ -153,6 +158,12 @@ void parseSerial()
       fVal = Serial.parseFloat();
       HTRPID.outMax = fVal;
       Serial.print(F("Set maximum output to "));
+      Serial.println(fVal);
+    break;    
+    case 'n' : // set minimum output
+      fVal = Serial.parseFloat();
+      HTRPID.outMin = fVal;
+      Serial.print(F("Set minimum output to "));
       Serial.println(fVal);
     break;    
     case 'g' : // set slopeADCtoPSIG for sensor calibration
@@ -182,15 +193,22 @@ void parseSerial()
     Serial.println(F("o # - set output power"));
     Serial.println(F("t # - set iTerm of PID controller"));
     Serial.println(F("w # - set heater cycle time in milliseconds"));
-    Serial.println(F("m # - set maximum output power (fraction of time for heater to be on, so limited to 1)"));
+    Serial.println(F("m # - set maximum PID output"));
+    Serial.println(F("n # - set minimum PID output"));
     Serial.println(F("g # - set ADC to pressure slope"));
     Serial.println(F("z # - set ADC to pressure zero offset"));
     Serial.println(F("v - save settings to EEPROM, will always be in auto after a reset"));    
+    Serial.println(F("Note that the PID output is limited by adjusting the iTerm. While the heater power can only be between 0 (always off) to 1 (always on) larger limits on the PID loop ouput are useful for preventing changes to the iTerm when first determining control values."));
     Serial.print(F("Output is "));
     Serial.println(power);
     Serial.print(F("Setpoint is "));
     Serial.print(HTRPID.setPoint);
-    Serial.println(F(" psig"));
+    Serial.println(PSIGMessage);
+    Serial.print(F("Output range is "));
+    Serial.print(HTRPID.outMin);
+    Serial.print(F(" to "));
+    Serial.print(HTRPID.outMax);
+    Serial.println(PSIGMessage);
     Serial.print(F("Kp is "));
     Serial.println(HTRPID.Kp);
     Serial.print(F("Ki is "));
@@ -201,8 +219,8 @@ void parseSerial()
     Serial.print(slopeADCtoPSIG);
     Serial.print(F(" + "));
     Serial.println(offsetADCtoPSIG);
-    Serial.print(F("Automatic control is "));
-    Serial.println(HTRPID.inAuto);
+    Serial.print(F("Control is in "));
+    Serial.println(HTRPID.inAuto?F("auto"):F("manual"));
     Serial.print(F("PID pTerm is "));
     Serial.println(HTRPID.pTerm);
     Serial.print(F("PID iTerm is "));
@@ -231,12 +249,13 @@ void loop()
   if (HTRPID.Compute()) // If the PID recalculated heater power, this is also the start of the heater power window
   {
     // turn the heater on at the beginning of the window and determine when to turn the heater off
-    windowStopTime = (power > PowerPeriodInMs / HTRCycleTime) ? power * HTRCycleTime : 0; // if it won't be at least one cycle, don't turn on the heater
+    windowStopTime = (power > PowerPeriodInMs / HTRPID.sampleTime) ? power * HTRPID.sampleTime : 0; // if it won't be at least one cycle, don't turn on the heater
+    if (windowStopTime>HTRPID.sampleTime) windowStopTime = HTRPID.sampleTime;
     if (Serial)
     {
       Serial.print(PressureMessage);
       Serial.print(pressure);
-      Serial.println(F(" psig."));
+      Serial.println(PSIGMessage);
       Serial.print(F("Turning heater on for "));
       Serial.print(windowStopTime);
       Serial.print(F(" out of "));

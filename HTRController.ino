@@ -76,15 +76,6 @@ void LoadFromEEPROM( int addrEEPROM = 0 )
   EEPROM.get(addrEEPROM,loopDelay);
 }
 
-void softwareReset( uint8_t prescaller) {
-  // start watchdog with the provided prescaller
-  wdt_enable( prescaller);
-  // wait for the prescaller time to expire
-  // without sending the reset signal by using
-  // the wdt_reset() method
-  while(1) {};
-}
-
 void setup()
 {
   wdt_enable(WDTO_8S);
@@ -196,11 +187,6 @@ void parseSerial()
       EEPROM.put(0,(long)(-1));
       Serial.println(F("Default settings will be restored next reset."));
     break;
-    case 'R' : // reset
-      // restart in 60 milliseconds
-      Serial.println(F("Resetting"));
-      softwareReset( WDTO_60MS);
-    break;
     
     case '?' : // display settings
     Serial.println(F("Commands are:"));
@@ -219,7 +205,6 @@ void parseSerial()
     Serial.println(F("L # - set loop delay, note that a delay longer than 8s will trigger the watchdog timer"));
     Serial.println(F("v - save settings to EEPROM, will always be in auto after a reset")); 
     Serial.println(F("F - restore default settings"));
-    Serial.println(F("R - reset"));
     Serial.println(F("Note that the PID output is limited by adjusting the iTerm. While the heater power can only be between 0 (always off) to 1 (always on) larger limits on the PID loop ouput are useful for preventing changes to the iTerm when first determining control values."));
     Serial.print(F("Output is "));
     Serial.println(power);

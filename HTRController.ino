@@ -1,5 +1,6 @@
 #include <PID.h>
 #include <EEPROM.h>
+#include <avr/wdt.h>
 
 const int HTRCycleTime = 8192;
 
@@ -13,14 +14,14 @@ const double Kd = 0.01;
 const double SetPoint = 8.0; // should be about 8 psi
 
 // strings take up memory, so those that occur in multiple places should refer to a global string
-const char PressureMessage[] PROGMEM = {"Measured pressure is "}; 
-const char MilliSecondsMessage[] PROGMEM = {" ms."};
-const char PSIGMessage[] PROGMEM = {" psig."};
+const char PressureMessage[] = {"Measured pressure is "}; 
+const char MilliSecondsMessage[] = {" ms."};
+const char PSIGMessage[] = {" psig."};
 
 const double PowerPeriodInMs = 60.0/1000.0; // 60 Hz in USA 
 
 double slopeADCtoPSIG = 0.0366569;
-double offsetADCtoPSIG = -3.75;
+double offsetADCtoPSIG = -1.75;
 double pressure;
 double power = 0.0;
 bool heaterOn = false;
@@ -75,9 +76,18 @@ void LoadFromEEPROM( int addrEEPROM = 0 )
   EEPROM.get(addrEEPROM,loopDelay);
 }
 
+void softwareReset( uint8_t prescaller) {
+  // start watchdog with the provided prescaller
+  wdt_enable( prescaller);
+  // wait for the prescaller time to expire
+  // without sending the reset signal by using
+  // the wdt_reset() method
+  while(1) {};
+}
 
 void setup()
 {
+  wdt_enable(WDTO_8S);
   analogReference(DEFAULT); // use the 5 V reference
   HTRPID.sampleTime = HTRCycleTime;
   pinMode(HeaterPin, OUTPUT);
@@ -147,7 +157,7 @@ void parseSerial()
       Serial.print(iVal);
       Serial.println(MilliSecondsMessage);
     break;
-    case '*' : // set loop delay
+    case 'L' : // set loop delay
       iVal = Serial.parseInt();
       loopDelay = iVal;
       Serial.print(F("Set loop delay time to "));
@@ -182,6 +192,15 @@ void parseSerial()
       Serial.println(F("Saving settings to EEPROM."));
       SaveToEEPROM();
     break;
+    case 'F' : // restore default settings
+      EEPROM.put(0,(long)(-1));
+      Serial.println(F("Default settings will be restored next reset."));
+    break;
+    case 'R' : // reset
+      // restart in 60 milliseconds
+      Serial.println(F("Resetting"));
+      softwareReset( WDTO_60MS);
+    break;
     
     case '?' : // display settings
     Serial.println(F("Commands are:"));
@@ -197,7 +216,10 @@ void parseSerial()
     Serial.println(F("n # - set minimum PID output"));
     Serial.println(F("g # - set ADC to pressure slope"));
     Serial.println(F("z # - set ADC to pressure zero offset"));
-    Serial.println(F("v - save settings to EEPROM, will always be in auto after a reset"));    
+    Serial.println(F("L # - set loop delay, note that a delay longer than 8s will trigger the watchdog timer"));
+    Serial.println(F("v - save settings to EEPROM, will always be in auto after a reset")); 
+    Serial.println(F("F - restore default settings"));
+    Serial.println(F("R - reset"));
     Serial.println(F("Note that the PID output is limited by adjusting the iTerm. While the heater power can only be between 0 (always off) to 1 (always on) larger limits on the PID loop ouput are useful for preventing changes to the iTerm when first determining control values."));
     Serial.print(F("Output is "));
     Serial.println(power);
@@ -240,6 +262,7 @@ void parseSerial()
 
 void loop()
 {
+  wdt_reset(); // reset watchdog timer before measurement
   digitalWrite(5, HIGH);//Turns on the Green LED 
   parseSerial();
   // read current pressure
@@ -284,5 +307,9 @@ void loop()
       digitalWrite(6, LOW); //turn off the Red LED  
     }
   }
-  if (loopDelay) delay(loopDelay);
+  if (loopDelay) 
+  {
+    wdt_reset(); // reset watchdog timer before delay
+    delay(loopDelay);
+  }
 }
